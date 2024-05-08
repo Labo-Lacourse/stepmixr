@@ -1,35 +1,57 @@
 library(stepmixr)
 
-simul  <- function(n = 2000, n_steps = 1, sep_level = 0.9, correction = NA){
+simul  <- function(n = 2000, n_steps = 1, sep_level = 0.9, correction = NA, rs = 1){
   # Simulate data
-  datasim <- data_bakk_covariate(n_samples=as.integer(n), sep_level=sep_level)
+  datasim <- data_bakk_covariate(n_samples=as.integer(n), sep_level=sep_level, 
+                                 random_state = rs)
   opt_params = list(
     method = 'newton-raphson',
     max_iter  = as.integer(1),
     intercept = TRUE)
   
+  opt_params3 = list(
+    method = 'newton-raphson',
+    max_iter  = as.integer(250),
+    intercept = TRUE)
+  
+  
+  
   # Fit StepMix Estimator
   if(!is.na(correction))
-    
     model = stepmix(n_components=3, 
-                       measurement='binary', 
-                       structural='covariate', 
-                       max_iter=250,  
-                       abs_tol=1e-8,
-                       n_steps=n_steps, 
-                       progress_bar=0,
-                       structural_params = opt_params,
-                      correction = correction)
+                    measurement='binary', 
+                    structural='covariate', 
+                    max_iter=250,
+                    abs_tol=1e-8,
+                    n_steps=n_steps,
+                    assignment="modal",
+                    progress_bar=0,
+                    structural_params = opt_params3,
+                    correction = correction,
+                    random_state = rs)
   else 
+    if(n_steps == 3)
+      model = stepmix(n_components=3, 
+                      measurement='binary', 
+                      structural='covariate', 
+                      max_iter=250,  
+                      abs_tol=1e-8,
+                      n_steps=n_steps,
+                      progress_bar=0,
+                      structural_params = opt_params3,
+                      correction = NULL,
+                      random_state = rs)
+  else
     model = stepmix(n_components=3, 
-                  measurement='binary', 
-                  structural='covariate', 
-                  max_iter=250,  
-                  abs_tol=1e-8,
-                  n_steps=n_steps, 
-                  progress_bar=0,
-                  structural_params = NULL,
-                  correction = NULL)
+                    measurement='binary', 
+                    structural='covariate', 
+                    max_iter=250,  
+                    abs_tol=1e-8,
+                    n_steps=n_steps,
+                    progress_bar=0,
+                    structural_params = opt_params,
+                    correction = NULL,
+                    random_state = rs)
   
   fit1 <- fit(model, datasim[[1]], datasim[[2]])
   
@@ -53,31 +75,31 @@ test.par <- test.par[test.par$n_steps %in%  1:2 & is.na(test.par$correction) |
                        test.par$n_steps == 3,]
 
 ### Run the 500 simulations.
-test <- replicate(500, expr = mapply(simul,
-                                     n          = test.par$n,
-                                     sep_level  = test.par$sep_level,
-                                     n_steps    = test.par$n_steps,
-                                     correction = test.par$correction))
+test = NULL
+for(i in 1:500){
+  print(i)
+  rs = 12345 * ( i -1 )
+  test = cbind(test, mapply(simul,
+                                n          = test.par$n,
+                                sep_level  = test.par$sep_level,
+                                n_steps    = test.par$n_steps,
+                                correction = test.par$correction,
+                                rs = rep(rs, 45)))
+}
 
-test[test>=1000] <- NA 
-
-save(test, test.par, file = "Distal outcome/")
+test.par$method = with(test.par, sprintf("%s (%s)", n_steps, correction))
 
 ### Compute Mean Bias and RMSE
-
 test.par$resMean_bias = apply(1-test, 1, mean, na.rm = TRUE)
-test.par$rmse = sqrt(apply((1-test)^2, 1, mean, na.rm = TRUE))
+test.par$rmse = sqrt(apply((test-1)^2, 1, mean, na.rm = TRUE))
 
 ### Combine n_steps, correction into method
 test.par$method = with(test.par, sprintf("%s (%s)", n_steps, correction))
 
-### Format results. 
+
 (ft1 <- round(ftable(xtabs(resMean_bias ~ sep_level + n + method, test.par)), 2))
 (ft2 <- round(ftable(xtabs(rmse ~ sep_level + n + method, test.par)), 2))
 
+save(test, test.par, file = "Covariate.Rdata")
 
-### Pour tableau en LaTeX. 
-xtable::xtableFtable(ft1)
 
-write.csv(test, "StepMixR simulation results data/test_df_cov.csv")
-write.csv(test.par, "StepMixR simulation results data/testpar_df_cov.csv")
